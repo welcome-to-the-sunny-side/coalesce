@@ -212,7 +212,7 @@ def whoami():
         click.echo(f"  {handle}")
 
 
-@cli.command()
+@cli.command(name="list")
 @click.option("--spoil", is_flag=True, help="Show problem rating and tags")
 @click.option("--rating", help="Rating range (format: x-y, default: 0-3500)")
 @click.option("--tag_and", help="Problem must have ALL these tags (comma-separated)")
