@@ -1,3 +1,4 @@
 click
+urllib3
 requests
 tabulate

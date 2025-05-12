@@ -7,7 +7,7 @@ setup(
     include_package_data=True,
     install_requires=[
         "click",
-        "urllib3>=1.26.0",
+        "urllib3",
         "requests",
         "tabulate",
     ],
