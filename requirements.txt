@@ -1,4 +1,0 @@
-requests
-click
-python-dateutil
-rich

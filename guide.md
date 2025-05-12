@@ -2,9 +2,10 @@ I want to create a terminal app called "coalesce" which will basically maintain 
 
 # Overwiew:
 
-1. The app should maintain a central json file which stores information about all the problems. The columns here will be [Problem Identifier,Problem Link,Rating,Tags,Submission ID,Link to Submission, Submission Time]. 
-2. The app should make periodic local backups of this json file.
-3. The app should support data analysis features like: display all the problems I have solved with a certain rating, display all the problems i solved within a certain time range, display all the problems I have solved with a certain tag, etc etc. It should be able to output data in the form of simple graphs rendered right inside the terminal. It should also be able to suggest random problems to solve that match certain specified criteria (for example a rating range, whether I have solved said problem before or not, etc.). We will hardcode default values for these criteria in a thoughful manner (for example, by default, we will suggest problems that haven't been solved before).
+1. The app should be a global command line tool, that can be accessed from anywhere.
+2. The app should maintain a central json file which stores information about all the problems. The columns here will be [Problem Identifier,Problem Link,Rating,Tags,Submission ID,Link to Submission, Submission Time]. 
+3. The app should make periodic local backups of this json file.
+4. The app should support data analysis features like: display all the problems I have solved with a certain rating, display all the problems i solved within a certain time range, display all the problems I have solved with a certain tag, etc etc. It should be able to output data in the form of simple graphs rendered right inside the terminal. It should also be able to suggest random problems to solve that match certain specified criteria (for example a rating range, whether I have solved said problem before or not, etc.). We will hardcode default values for these criteria in a thoughful manner (for example, by default, we will suggest problems that haven't been solved before).
 
 # Implementation Details:
 
