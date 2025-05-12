@@ -3,3 +3,4 @@ __pycache__
 venv
 coalesce.egg-info
 .DS_Store
+coalesce/__pycache__
