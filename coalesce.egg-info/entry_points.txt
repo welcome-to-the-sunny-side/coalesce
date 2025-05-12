@@ -1,0 +1,2 @@
+[console_scripts]
+coalesce = coalesce.cli:main
