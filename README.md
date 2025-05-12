@@ -62,8 +62,9 @@ coalesce list [OPTIONS]
 #   --tag_and TEXT   Problem must have ALL these tags (comma-separated)
 #   --tag_or TEXT    Problem must have AT LEAST ONE of these tags (comma-separated)
 #   --time TEXT      Time range (format: DD/MM/YYYY-DD/MM/YYYY or keywords)
-#   --cid TEXT       Contest ID
+#   --cid TEXT       Contest ID range (format: x-y)
 #   --pid TEXT       Problem ID
+#   --verbose        Show all columns (rating, tags, submission info). Default: false.
 
 # Get a random problem matching criteria
 coalesce gimme [OPTIONS]
@@ -75,6 +76,17 @@ coalesce gimme [OPTIONS]
 #   --tag_or TEXT    Problem must have AT LEAST ONE of these tags (comma-separated)
 #   --cid TEXT       Contest ID range (format: x-y)
 #   --solved         Include problems that are already solved
+
+# Plot solved problems count from local data based on criteria
+coalesce plot [OPTIONS]
+
+# Options:
+#   --rating TEXT    Rating range (format: x-y, default: 0-3500)
+#   --tag_and TEXT   Problem must have ALL these tags (comma-separated)
+#   --tag_or TEXT    Problem must have AT LEAST ONE of these tags (comma-separated)
+#   --time TEXT      Time range (format: DD/MM/YYYY-DD/MM/YYYY or keywords)
+#   --cid TEXT       Contest ID range (format: x-y)
+#   --xaxis TEXT     X-axis for the plot (week, month, or rating). Default: month.
 ```
 
 ### Examples
@@ -83,11 +95,17 @@ coalesce gimme [OPTIONS]
 # Find a random problem with rating between 1200 and 1500
 coalesce gimme --rating 1200-1500
 
-# List all problems with the "dp" tag solved this week
+# List only IDs and links for problems with the "dp" tag solved this week
 coalesce list --tag_and dp --time "this week"
+
+# List all details for problems with the "dp" tag solved this week
+coalesce list --tag_and dp --time "this week" --verbose
 
 # Find an unsolved problem with either "graphs" or "trees" tag
 coalesce gimme --tag_or graphs,trees
+
+# Plot monthly solves from local data for problems rated 1600-1800
+coalesce plot --rating 1600-1800 --xaxis month
 ```
 
 ## Features
@@ -96,6 +114,7 @@ coalesce gimme --tag_or graphs,trees
 - Automatic backups of problem data
 - Filter problems by rating, tags, time, contest ID, and more
 - Get random problem recommendations
+- Plot solved problem counts over time or by rating
 - Export data to CSV format
 
 ## Data Storage

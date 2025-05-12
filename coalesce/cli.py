@@ -9,6 +9,9 @@ import sys
 import time
 from datetime import datetime, timedelta
 from tabulate import tabulate
+import plotext as plt
+from collections import defaultdict
+import math
 
 from .data_manager import DataManager
 
@@ -294,9 +297,10 @@ def gimme(spoil, rating, tag_and, tag_or, cid, solved):
 @click.option("--tag_and", help="Problem must have ALL these tags (comma-separated)")
 @click.option("--tag_or", help="Problem must have AT LEAST ONE of these tags (comma-separated)")
 @click.option("--time", help="Time range (format: DD/MM/YYYY-DD/MM/YYYY or keywords)")
-@click.option("--cid", help="Contest ID")
+@click.option("--cid", help="Contest ID range (format: x-y)")
 @click.option("--pid", help="Problem ID")
-def list(rating, tag_and, tag_or, time, cid, pid):
+@click.option("--verbose", is_flag=True, default=False, help="Show all columns (includes rating, tags, submission info).")
+def list(rating, tag_and, tag_or, time, cid, pid, verbose):
     """List problems matching the given criteria."""
     data_manager = DataManager()
     
@@ -317,49 +321,48 @@ def list(rating, tag_and, tag_or, time, cid, pid):
         filters["time_range"] = parse_time_parameter(time)
     
     if cid:
-        filters["contest_id"] = cid
+        filters["cid_range"] = parse_cid_range(cid)
     
     if pid:
         filters["problem_id"] = pid
     
     # Get problems
-    problems = data_manager.get_problems(filters)
+    problems = data_manager.get_problems(filters=filters)
     
     if not problems:
         click.secho("No problems found matching the criteria", fg="yellow")
         return
     
-    # Prepare the data for display
+    # Prepare the data for display based on verbosity
     table_data = []
-    for problem in problems:
-        submission_time = datetime.fromtimestamp(problem["submission_time"]).strftime("%Y-%m-%d %H:%M:%S")
-        tags = ", ".join(problem["tags"][:3])  # Show only first 3 tags to save space
-        if len(problem["tags"]) > 3:
-            tags += "..."
+    if verbose:
+        headers = ["Problem ID", "Problem Link", "Rating", "Tags", "Submission ID", "Submission Link", "Submission Time"]
+        for problem in problems:
+            submission_time = datetime.fromtimestamp(problem["submission_time"]).strftime("%Y-%m-%d %H:%M:%S")
+            tags = ", ".join(problem["tags"])
             
-        # Truncate URLs to avoid table overflow
-        problem_link = problem["problem_link"]
-        if len(problem_link) > 40:
-            problem_link = problem_link[:37] + "..."
+            problem_link = problem["problem_link"]
+            submission_link = problem["submission_link"]
             
-        submission_link = problem["submission_link"]
-        if len(submission_link) > 40:
-            submission_link = submission_link[:37] + "..."
-        
-        table_data.append([
-            problem["problem_id"],
-            problem_link,
-            problem["rating"],
-            tags,
-            problem["submission_id"],
-            submission_link,
-            submission_time
-        ])
-    
-    # Display the table with maximal column widths
-    headers = ["Problem ID", "Problem Link", "Rating", "Tags", "Submission ID", "Submission Link", "Submission Time"]
-    # Set max column widths to prevent table overflow
-    click.echo(tabulate(table_data, headers=headers, tablefmt="grid", maxcolwidths=[15, 40, 8, 25, 15, 40, 20]))
+            table_data.append([
+                problem["problem_id"],
+                problem_link,
+                problem["rating"],
+                tags,
+                problem["submission_id"],
+                submission_link,
+                submission_time
+            ])
+    else: # Not verbose - only Problem ID and Link
+        headers = ["Problem ID", "Problem Link"]
+        for problem in problems:
+            table_data.append([
+                problem["problem_id"],
+                problem["problem_link"] 
+            ])
+
+    # Display the table
+    click.echo(tabulate(table_data, headers=headers, tablefmt="grid"))
     click.echo(f"Total problems: {len(problems)}")
 
 
@@ -397,6 +400,122 @@ def export():
             ])
     
     click.secho(f"Data exported to {export_file}", fg="green")
+
+
+@cli.command()
+@click.option("--rating", help="Rating range (format: x-y, default: 0-3500)")
+@click.option("--tag_and", help="Problem must have ALL these tags (comma-separated)")
+@click.option("--tag_or", help="Problem must have AT LEAST ONE of these tags (comma-separated)")
+@click.option("--time", help="Time range (format: DD/MM/YYYY-DD/MM/YYYY or keywords)")
+@click.option("--cid", help="Contest ID range (format: x-y)")
+@click.option("--xaxis", default="month", type=click.Choice(['week', 'month', 'rating']), help="X-axis for the plot (week, month, or rating). Default: month.")
+def plot(rating, tag_and, tag_or, time, cid, xaxis):
+    """Plot solved problems count from local data based on specified criteria.""" 
+    data_manager = DataManager()
+
+    # 1. Fetch problems from local JSON
+    click.echo("Loading problems from local data file...")
+    # Use get_problems() instead of get_solved_problems(handle)
+    solved_problems = data_manager.get_problems() 
+
+    if not solved_problems:
+        click.secho("No problems found in local data file. Run 'coalesce pull' first.", fg="yellow")
+        return
+    
+    click.echo(f"Loaded {len(solved_problems)} problems from local data.")
+
+    # 2. Build filters (remains largely the same, no handle filter needed)
+    filters = {}
+    plot_rating_range = parse_rating_range(rating) 
+    filters["rating_range"] = plot_rating_range
+
+    if tag_and:
+        filters["tag_and"] = parse_tags(tag_and)
+    if tag_or:
+        filters["tag_or"] = parse_tags(tag_or)
+    if time:
+        filters["time_range"] = parse_time_parameter(time)
+    if cid:
+        filters["cid_range"] = parse_cid_range(cid)
+
+    # 3. Filter problems
+    filtered_problems = [p for p in solved_problems if data_manager._matches_filters(p, filters)]
+
+    if not filtered_problems:
+        click.secho("No problems found matching the criteria after filtering.", fg="yellow")
+        return
+
+    click.echo(f"Plotting {len(filtered_problems)} problems matching criteria.")
+
+    # 4. Aggregate data based on xaxis
+    aggregated_data = defaultdict(int)
+    labels = []
+    counts = []
+
+    if xaxis == 'week' or xaxis == 'month':
+        # Aggregate by time
+        for problem in filtered_problems:
+            dt_object = datetime.fromtimestamp(problem['submission_time'])
+            if xaxis == 'week':
+                # Group by start of the week (Monday), using ISO year and week number
+                start_of_period = dt_object - timedelta(days=dt_object.weekday())
+                period_label = start_of_period.strftime("%G-W%V") # ISO Year-WeekNumber (handles year boundaries better)
+            else: # month
+                # Group by start of the month
+                period_label = dt_object.strftime("%Y-%m") # Year-Month
+            aggregated_data[period_label] += 1
+        
+        # Sort by period for chronological order
+        sorted_periods = sorted(aggregated_data.keys())
+        labels = sorted_periods
+        counts = [aggregated_data[p] for p in sorted_periods]
+
+    elif xaxis == 'rating':
+        # Aggregate by rating bins (e.g., 800-899, 900-999, ...)
+        bin_step = 100
+        rating_bins = defaultdict(int)
+        
+        # Determine min/max rating from filtered problems for relevant bins
+        min_r = min(p['rating'] for p in filtered_problems if p.get('rating')) if filtered_problems else plot_rating_range[0]
+        max_r = max(p['rating'] for p in filtered_problems if p.get('rating')) if filtered_problems else plot_rating_range[1]
+        
+        # Adjust min/max to sensible bounds if needed
+        min_r = max(0, min_r)
+        max_r = max(min_r, max_r) # Ensure max is at least min
+
+        for problem in filtered_problems:
+            # Ensure rating exists and is numeric
+            problem_rating = problem.get('rating')
+            if problem_rating is not None:
+                # Ensure rating falls within the initially specified filter range for consistency
+                if plot_rating_range[0] <= problem_rating <= plot_rating_range[1]:
+                     bin_start = math.floor(problem_rating / bin_step) * bin_step
+                     # Clamp bin_start just in case
+                     bin_start = max(0, bin_start)
+                     rating_bins[bin_start] += 1
+            
+        # Prepare labels and counts for plotting, only include bins with counts
+        sorted_bins = sorted(rating_bins.keys())
+        labels = [f"{r}-{r + bin_step - 1}" for r in sorted_bins]
+        counts = [rating_bins[r] for r in sorted_bins]
+
+    # 5. Plot using plotext
+    if not labels or not counts:
+        click.secho("No data to plot after aggregation.", fg="yellow")
+        return
+
+    plt.clf() # Clear previous plot data
+    plt.theme('clear') # Use terminal's default background
+    
+    plt.bar(labels, counts, color='green') # Set bar color to green
+    
+    plt.title("Solved Problems Count (Aggregated from Local Data)") 
+    plt.xlabel(f"{xaxis.capitalize()} Period" if xaxis != 'rating' else "Rating Range")
+    plt.ylabel("Count")
+    plt.plotsize(100, 25) # Adjust size for better readability
+    plt.grid(True, False) # Horizontal grid lines only
+    
+    plt.show()
 
 
 def main():
