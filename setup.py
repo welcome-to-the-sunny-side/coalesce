@@ -11,6 +11,7 @@ setup(
         "requests",
         "tabulate",
         "plotext",
+        "rich",
     ],
     entry_points={
         "console_scripts": [

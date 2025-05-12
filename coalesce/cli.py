@@ -8,7 +8,9 @@ import random
 import sys
 import time
 from datetime import datetime, timedelta
-from tabulate import tabulate
+from rich.console import Console
+from rich.table import Table
+from rich import box
 import plotext as plt
 from collections import defaultdict
 import math
@@ -127,14 +129,24 @@ def help():
 
 @cli.command()
 def pull():
-    """Refresh the central JSON file with the latest problems."""
+    """Refresh both data files with the latest problems."""
+    click.echo("Refreshing problem data from Codeforces...")
+    
     data_manager = DataManager()
+    
+    # Update all problems file first
+    click.echo("Updating exhaustive problem cache...")
+    all_problems, cache_message = data_manager.get_all_problems(force_refresh=True)
+    click.secho(cache_message, fg="green")
+    
+    # Then update solved problems
+    click.echo("Updating your solved problems data...")
     success, message = data_manager.update_problems_data()
     
     if success:
         click.secho(message, fg="green")
     else:
-        click.secho(message, fg="red")
+        click.secho(f"Error: {message}", fg="red")
 
 
 @cli.command()
@@ -142,15 +154,22 @@ def pull():
 def add(handle):
     """Add a Codeforces handle to track."""
     data_manager = DataManager()
+    data_manager.lazy_refresh()  # Run lazy refresh first
     success, message = data_manager.add_handle(handle)
     
     if success:
         click.secho(message, fg="green")
-        # Automatically update problems data
-        click.echo("Updating problems data...")
-        data_manager.update_problems_data()
+        click.echo("Updating problems data with the new handle...")
+        
+        # Automatically pull problem data
+        pull_success, pull_message = data_manager.update_problems_data()
+        
+        if pull_success:
+            click.secho(pull_message, fg="green")
+        else:
+            click.secho(f"Warning: {pull_message}", fg="yellow")
     else:
-        click.secho(message, fg="red")
+        click.secho(f"Error: {message}", fg="red")
 
 
 @cli.command()
@@ -158,29 +177,39 @@ def add(handle):
 def remove(handle):
     """Remove a Codeforces handle from tracking."""
     data_manager = DataManager()
+    data_manager.lazy_refresh()  # Run lazy refresh first
     success, message = data_manager.remove_handle(handle)
     
     if success:
         click.secho(message, fg="green")
-        # Automatically update problems data
-        click.echo("Updating problems data...")
-        data_manager.update_problems_data()
+        click.echo("Updating problems data after handle removal...")
+        
+        # Automatically pull problem data
+        pull_success, pull_message = data_manager.update_problems_data()
+        
+        if pull_success:
+            click.secho(pull_message, fg="green")
+        else:
+            click.secho(f"Warning: {pull_message}", fg="yellow")
     else:
-        click.secho(message, fg="red")
+        click.secho(f"Error: {message}", fg="red")
 
 
 @cli.command()
 def whoami():
     """Show the list of tracked Codeforces handles."""
     data_manager = DataManager()
+    data_manager.lazy_refresh()  # Run lazy refresh first
     handles = data_manager.get_handles()
     
-    if handles:
-        click.echo("Tracked handles:")
-        for handle in handles:
-            click.echo(f"- {handle}")
-    else:
-        click.echo("No handles being tracked. Add handles using 'coalesce add <handle>'")
+    if not handles:
+        click.echo("No handles are being tracked.")
+        click.echo("Add a handle with 'coalesce add <handle>'")
+        return
+    
+    click.echo("Tracked handles:")
+    for handle in handles:
+        click.echo(f"  {handle}")
 
 
 @cli.command()
@@ -193,6 +222,7 @@ def whoami():
 def gimme(spoil, rating, tag_and, tag_or, cid, solved):
     """Get a random problem matching the given criteria."""
     data_manager = DataManager()
+    data_manager.lazy_refresh()  # Run lazy refresh first
     
     # Parse filters
     filters = {}
@@ -210,68 +240,31 @@ def gimme(spoil, rating, tag_and, tag_or, cid, solved):
     if cid:
         filters["cid_range"] = parse_cid_range(cid)
     
-    # Get problems (either all problems from API or just solved ones)
+    # Get problems (either solved problems or all problems minus solved ones)
     if solved:
         problems = data_manager.get_problems(filters)
     else:
-        # For unsolved problems, we need to fetch all problems and filter out solved ones
-        all_problems_url = "https://codeforces.com/api/problemset.problems"
-        import requests
-        response = requests.get(all_problems_url)
-        data = response.json()
+        # For unsolved problems, use the cached all problems data and filter out solved ones
+        all_problems, _ = data_manager.get_all_problems()
         
-        if data["status"] != "OK":
-            click.secho(f"Failed to fetch problems: {data.get('comment', 'Unknown error')}", fg="red")
+        if not all_problems:
+            click.secho("Failed to fetch or load Codeforces problems", fg="red")
             return
         
         # Get list of solved problem IDs
         solved_problems = data_manager.get_problems()
         solved_ids = {p["problem_id"] for p in solved_problems}
         
-        # Filter unsolved problems
+        # Filter unsolved problems that match our criteria
         unsolved_problems = []
-        for problem in data["result"]["problems"]:
-            if "contestId" not in problem or "index" not in problem:
+        for problem in all_problems:
+            # Skip if already solved
+            if problem["problem_id"] in solved_ids:
                 continue
                 
-            problem_id = f"{problem['contestId']}{problem['index']}"
-            
-            # Skip if already solved
-            if problem_id in solved_ids:
-                continue
-            
-            rating = problem.get("rating", 0)
-            tags = problem.get("tags", [])
-            
-            # Apply rating filter
-            min_rating, max_rating = filters["rating_range"]
-            if not (min_rating <= rating <= max_rating):
-                continue
-            
-            # Apply tag_and filter
-            if "tag_and" in filters and filters["tag_and"]:
-                if not all(tag in tags for tag in filters["tag_and"]):
-                    continue
-            
-            # Apply tag_or filter
-            if "tag_or" in filters and filters["tag_or"]:
-                if not any(tag in tags for tag in filters["tag_or"]):
-                    continue
-                    
-            # Apply contest ID range filter
-            if "cid_range" in filters:
-                min_cid, max_cid = filters["cid_range"]
-                contest_id = problem.get("contestId", 0)
-                if not (min_cid <= contest_id <= max_cid):
-                    continue
-            
-            problem_link = f"https://codeforces.com/problemset/problem/{problem['contestId']}/{problem['index']}"
-            unsolved_problems.append({
-                "problem_id": problem_id,
-                "problem_link": problem_link,
-                "rating": rating,
-                "tags": tags
-            })
+            # Only include problems that match our filters
+            if data_manager._matches_filters(problem, filters):
+                unsolved_problems.append(problem)
         
         problems = unsolved_problems
     
@@ -293,16 +286,17 @@ def gimme(spoil, rating, tag_and, tag_or, cid, solved):
 
 
 @cli.command()
-@click.option("--rating", help="Rating range (format: x-y, default: 0-3500)")
-@click.option("--tag_and", help="Problem must have ALL these tags (comma-separated)")
-@click.option("--tag_or", help="Problem must have AT LEAST ONE of these tags (comma-separated)")
-@click.option("--time", help="Time range (format: DD/MM/YYYY-DD/MM/YYYY or keywords)")
-@click.option("--cid", help="Contest ID range (format: x-y)")
-@click.option("--pid", help="Problem ID")
-@click.option("--verbose", is_flag=True, default=False, help="Show all columns (includes rating, tags, submission info).")
-def list(rating, tag_and, tag_or, time, cid, pid, verbose):
+@click.option("--rating", help="Rating range (x-y, default 0‑3500)")
+@click.option("--tag_and", help="Problem must have ALL these tags")
+@click.option("--tag_or", help="Problem must have AT LEAST ONE of these tags")
+@click.option("--time", help="Time range (DD/MM/YYYY‑DD/MM/YYYY or keywords)")
+@click.option("--cid", help="Contest ID range (x-y)")
+@click.option("--pid", help="Specific problem ID")
+@click.option("--verbose", is_flag=True, help="Show more details")
+def list_cmd(rating, tag_and, tag_or, time, cid, pid, verbose):
     """List problems matching the given criteria."""
     data_manager = DataManager()
+    data_manager.lazy_refresh()  # Run lazy refresh first
     
     # Parse filters
     filters = {}
@@ -362,14 +356,51 @@ def list(rating, tag_and, tag_or, time, cid, pid, verbose):
             ])
 
     # Display the table
-    click.echo(tabulate(table_data, headers=headers, tablefmt="grid"))
+    console = Console()
+    # Get the current terminal width
+    term_width = console.width
+    
+    # Let Rich auto-adjust to terminal width
+    table = Table(
+        show_header=True, 
+        header_style="", 
+        style="green",
+        border_style="green", 
+        show_lines=True,
+        box=box.ROUNDED
+    )
+    
+    # Add columns with appropriate handling for different content types
+    for i, header in enumerate(headers):
+        # Special handling for different column types
+        if header == "Problem Link" or header == "Submission Link":
+            table.add_column(header, no_wrap=True)
+        elif header == "Tags":
+            table.add_column(header, overflow="ellipsis")
+        elif header == "Problem ID":
+            table.add_column(header, justify="center")
+        elif header == "Rating":
+            table.add_column(header, justify="center")
+        elif header == "Submission ID":
+            table.add_column(header, justify="center")
+        else:
+            table.add_column(header)
+    
+    # Add rows
+    for row in table_data:
+        table.add_row(*[str(cell) for cell in row])
+    
+    console.print(table)
     click.echo(f"Total problems: {len(problems)}")
 
 
 @cli.command()
 def export():
     """Export the problem data to a CSV file."""
+    import csv
+    
     data_manager = DataManager()
+    data_manager.lazy_refresh()  # Run lazy refresh first
     problems = data_manager.get_problems()
     
     if not problems:
@@ -403,119 +434,137 @@ def export():
 
 
 @cli.command()
-@click.option("--rating", help="Rating range (format: x-y, default: 0-3500)")
-@click.option("--tag_and", help="Problem must have ALL these tags (comma-separated)")
-@click.option("--tag_or", help="Problem must have AT LEAST ONE of these tags (comma-separated)")
-@click.option("--time", help="Time range (format: DD/MM/YYYY-DD/MM/YYYY or keywords)")
-@click.option("--cid", help="Contest ID range (format: x-y)")
-@click.option("--xaxis", default="month", type=click.Choice(['week', 'month', 'rating']), help="X-axis for the plot (week, month, or rating). Default: month.")
+@click.option("--rating",   help="Rating range (x-y, default 0‑3500)")
+@click.option("--tag_and",  help="Problem must have ALL these tags")
+@click.option("--tag_or",   help="Problem must have AT LEAST ONE of these tags")
+@click.option("--time",     help="Time range (DD/MM/YYYY‑DD/MM/YYYY or keywords)")
+@click.option("--cid",      help="Contest ID range (x-y)")
+@click.option("--xaxis", default="month", type=click.Choice(["week", "month", "year", "rating"]), help="X‑axis grouping (week, month, year, or rating).")
 def plot(rating, tag_and, tag_or, time, cid, xaxis):
-    """Plot solved problems count from local data based on specified criteria.""" 
-    data_manager = DataManager()
+    """Plot solved‑problem counts from local data."""
+    dm = DataManager()
+    dm.lazy_refresh()  # Run lazy refresh first
 
-    # 1. Fetch problems from local JSON
-    click.echo("Loading problems from local data file...")
-    # Use get_problems() instead of get_solved_problems(handle)
-    solved_problems = data_manager.get_problems() 
-
-    if not solved_problems:
-        click.secho("No problems found in local data file. Run 'coalesce pull' first.", fg="yellow")
+    click.echo("Loading problems from local data file…")
+    problems = dm.get_problems()
+    if not problems:
+        click.secho("No problems found. Run ‘coalesce pull’ first.", fg="yellow")
         return
-    
-    click.echo(f"Loaded {len(solved_problems)} problems from local data.")
+    click.echo(f"Loaded {len(problems)} problems from local data.")
 
-    # 2. Build filters (remains largely the same, no handle filter needed)
-    filters = {}
-    plot_rating_range = parse_rating_range(rating) 
-    filters["rating_range"] = plot_rating_range
+    # build filters
+    f = {"rating_range": parse_rating_range(rating)}
+    if tag_and: f["tag_and"]   = parse_tags(tag_and)
+    if tag_or:  f["tag_or"]    = parse_tags(tag_or)
+    if time:    f["time_range"]= parse_time_parameter(time)
+    if cid:     f["cid_range"] = parse_cid_range(cid)
 
-    if tag_and:
-        filters["tag_and"] = parse_tags(tag_and)
-    if tag_or:
-        filters["tag_or"] = parse_tags(tag_or)
-    if time:
-        filters["time_range"] = parse_time_parameter(time)
-    if cid:
-        filters["cid_range"] = parse_cid_range(cid)
-
-    # 3. Filter problems
-    filtered_problems = [p for p in solved_problems if data_manager._matches_filters(p, filters)]
-
-    if not filtered_problems:
-        click.secho("No problems found matching the criteria after filtering.", fg="yellow")
+    filtered = [p for p in problems if dm._matches_filters(p, f)]
+    if not filtered:
+        click.secho("No problems match those filters.", fg="yellow")
         return
+    click.echo(f"Plotting {len(filtered)} problems matching criteria.")
 
-    click.echo(f"Plotting {len(filtered_problems)} problems matching criteria.")
-
-    # 4. Aggregate data based on xaxis
-    aggregated_data = defaultdict(int)
-    labels = []
-    counts = []
-
-    if xaxis == 'week' or xaxis == 'month':
-        # Aggregate by time
-        for problem in filtered_problems:
-            dt_object = datetime.fromtimestamp(problem['submission_time'])
-            if xaxis == 'week':
-                # Group by start of the week (Monday), using ISO year and week number
-                start_of_period = dt_object - timedelta(days=dt_object.weekday())
-                period_label = start_of_period.strftime("%G-W%V") # ISO Year-WeekNumber (handles year boundaries better)
-            else: # month
-                # Group by start of the month
-                period_label = dt_object.strftime("%Y-%m") # Year-Month
-            aggregated_data[period_label] += 1
-        
-        # Sort by period for chronological order
-        sorted_periods = sorted(aggregated_data.keys())
-        labels = sorted_periods
-        counts = [aggregated_data[p] for p in sorted_periods]
-
-    elif xaxis == 'rating':
-        # Aggregate by rating bins (e.g., 800-899, 900-999, ...)
-        bin_step = 100
-        rating_bins = defaultdict(int)
-        
-        # Determine min/max rating from filtered problems for relevant bins
-        min_r = min(p['rating'] for p in filtered_problems if p.get('rating')) if filtered_problems else plot_rating_range[0]
-        max_r = max(p['rating'] for p in filtered_problems if p.get('rating')) if filtered_problems else plot_rating_range[1]
-        
-        # Adjust min/max to sensible bounds if needed
-        min_r = max(0, min_r)
-        max_r = max(min_r, max_r) # Ensure max is at least min
-
-        for problem in filtered_problems:
-            # Ensure rating exists and is numeric
-            problem_rating = problem.get('rating')
-            if problem_rating is not None:
-                # Ensure rating falls within the initially specified filter range for consistency
-                if plot_rating_range[0] <= problem_rating <= plot_rating_range[1]:
-                     bin_start = math.floor(problem_rating / bin_step) * bin_step
-                     # Clamp bin_start just in case
-                     bin_start = max(0, bin_start)
-                     rating_bins[bin_start] += 1
+    # aggregate
+    agg = defaultdict(int)
+    if xaxis in ("week", "month", "year"):
+        for p in filtered:
+            dt = datetime.fromtimestamp(p["submission_time"])
+            if xaxis == "week":
+                label = (dt - timedelta(days=dt.weekday())).strftime("%G-W%V")
+            elif xaxis == "month":
+                label = dt.strftime("%Y-%m")
+            else:  # year
+                label = dt.strftime("%Y")
+            agg[label] += 1
+        labels = sorted(agg)
+        counts = [agg[l] for l in labels]
+    else:  # rating
+        step = 100
+        # Generate labels for every multiple of 100 in range [800, 3500]
+        rating_range = range(800, 3500 + 1, step)
+        for r in rating_range:
+            agg[r] = 0  # Initialize all rating bins to zero
             
-        # Prepare labels and counts for plotting, only include bins with counts
-        sorted_bins = sorted(rating_bins.keys())
-        labels = [f"{r}-{r + bin_step - 1}" for r in sorted_bins]
-        counts = [rating_bins[r] for r in sorted_bins]
+        for p in filtered:
+            r = p.get("rating")
+            if r is not None and f["rating_range"][0] <= r <= f["rating_range"][1]:
+                # Map to nearest step
+                rating_bin = (r // step) * step
+                # Only count if in our desired display range
+                if rating_bin in agg:
+                    agg[rating_bin] += 1
+                    
+        labels = [f"{b}-{b+step-1}" for b in sorted(agg)]
+        counts = [agg[b] for b in sorted(agg)]
 
-    # 5. Plot using plotext
-    if not labels or not counts:
-        click.secho("No data to plot after aggregation.", fg="yellow")
+    if not labels:
+        click.secho("Nothing to plot after aggregation.", fg="yellow")
         return
 
-    plt.clf() # Clear previous plot data
-    plt.theme('clear') # Use terminal's default background
-    
-    plt.bar(labels, counts, color='green') # Set bar color to green
-    
-    plt.title("Solved Problems Count (Aggregated from Local Data)") 
-    plt.xlabel(f"{xaxis.capitalize()} Period" if xaxis != 'rating' else "Rating Range")
+    # safe categorical plot
+    x_pos = list(range(len(labels)))
+    plt.clf()
+    plt.theme("clear")
+    # plt.bar(x_pos, counts, color="green")
+    plt.plot(x_pos, counts, color="green")
+
+    plt.xticks(x_pos, labels)
+    plt.xlabel("Rating Range" if xaxis == "rating" else f"{xaxis.capitalize()} Period")
     plt.ylabel("Count")
-    plt.plotsize(100, 25) # Adjust size for better readability
-    plt.grid(True, False) # Horizontal grid lines only
-    
+    plt.title("Solves")
+    plt.grid(True, False)
     plt.show()
+
+
+
+@cli.command()
+@click.option("--auto-refresh", type=click.Choice(["on", "off"]), help="Enable or disable auto-refresh")
+@click.option("--period", type=float, help="Auto-refresh period in days (0 for manual only)")
+@click.option("--show", is_flag=True, help="Show current configuration")
+def config(auto_refresh, period, show):
+    """Configure coalesce settings."""
+    data_manager = DataManager()
+    current_config = data_manager.get_config()
+    
+    # Show current configuration if requested or if no options provided
+    if show or (auto_refresh is None and period is None):
+        auto_refresh_config = current_config.get("auto_refresh", {"enabled": True, "period_days": 1})
+        enabled = auto_refresh_config.get("enabled", True)
+        period_days = auto_refresh_config.get("period_days", 1)
+        
+        click.echo("Current configuration:")
+        click.echo(f"  Auto-refresh: {'Enabled' if enabled else 'Disabled'}")
+        if enabled:
+            if period_days > 0:
+                click.echo(f"  Refresh period: {period_days} day(s)")
+            else:
+                click.echo("  Refresh period: Manual only")
+        return
+    
+    # Update auto-refresh setting if provided
+    if auto_refresh is not None:
+        enabled = auto_refresh == "on"
+    else:
+        # Keep current setting if not specified
+        auto_refresh_config = current_config.get("auto_refresh", {"enabled": True, "period_days": 1})
+        enabled = auto_refresh_config.get("enabled", True)
+    
+    # Update period if provided
+    if period is not None:
+        period_days = period
+    else:
+        # Keep current setting if not specified
+        auto_refresh_config = current_config.get("auto_refresh", {"enabled": True, "period_days": 1})
+        period_days = auto_refresh_config.get("period_days", 1)
+    
+    # Apply the settings
+    success, message = data_manager.set_auto_refresh(enabled, period_days)
+    
+    if success:
+        click.secho(message, fg="green")
+    else:
+        click.secho(f"Error: {message}", fg="red")
 
 
 def main():
@@ -525,7 +574,6 @@ def main():
     except Exception as e:
         click.secho(f"Error: {str(e)}", fg="red")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

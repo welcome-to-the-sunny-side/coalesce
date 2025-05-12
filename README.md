@@ -1,4 +1,4 @@
-# Coalesce
+# Coalesce (AI-Generated Readme)
 
 A command-line tool to track and analyze your Codeforces problem-solving data.
 
@@ -49,6 +49,14 @@ coalesce pull
 
 # Export problem data to CSV
 coalesce export
+
+# Configure auto-refresh settings
+coalesce config [OPTIONS]
+
+# Options:
+#   --auto-refresh [on|off]  Enable or disable auto-refresh
+#   --period FLOAT           Auto-refresh period in days (0 for manual only)
+#   --show                   Show current configuration
 ```
 
 ### Problem Analysis
@@ -86,7 +94,7 @@ coalesce plot [OPTIONS]
 #   --tag_or TEXT    Problem must have AT LEAST ONE of these tags (comma-separated)
 #   --time TEXT      Time range (format: DD/MM/YYYY-DD/MM/YYYY or keywords)
 #   --cid TEXT       Contest ID range (format: x-y)
-#   --xaxis TEXT     X-axis for the plot (week, month, or rating). Default: month.
+#   --xaxis TEXT     X-axis for the plot (week, month, year, or rating). Default: month.
 ```
 
 ### Examples
@@ -106,20 +114,54 @@ coalesce gimme --tag_or graphs,trees
 
 # Plot monthly solves from local data for problems rated 1600-1800
 coalesce plot --rating 1600-1800 --xaxis month
+
+# Plot yearly solves from local data
+coalesce plot --xaxis year
+```
+
+## Auto-Refresh System
+
+**NEW:** Coalesce now features a smart auto-refresh system that minimizes API calls to Codeforces.
+
+- **Default behavior**: Automatically refreshes data once per day when you run any command
+- **Customizable**: Set your preferred refresh period or disable auto-refresh entirely
+- **Manual option**: Set refresh period to 0 to only update when explicitly running `pull`
+- **Persistent**: Your settings are saved between sessions
+
+```bash
+# View current configuration
+coalesce config --show
+
+# Disable auto-refresh
+coalesce config --auto-refresh off
+
+# Enable auto-refresh with default period (1 day)
+coalesce config --auto-refresh on
+
+# Set a custom refresh period (e.g., 3.5 days)
+coalesce config --period 3.5
+
+# Set to manual refresh only
+coalesce config --period 0
 ```
 
 ## Features
 
 - Track problems solved across multiple Codeforces accounts
 - Automatic backups of problem data
+- **NEW: Smart caching of all Codeforces problems with configurable auto-refresh**
+- **NEW: Configuration management with customizable refresh periods**
+- **NEW: Automatic problem database updates when handles are added/removed**
 - Filter problems by rating, tags, time, contest ID, and more
 - Get random problem recommendations
-- Plot solved problem counts over time or by rating
+- Plot solved problem counts over time (by week, month, or year) or by rating
+- Plots use green color for better visibility
 - Export data to CSV format
 
 ## Data Storage
 
 Coalesce stores its data in the `~/.coalesce` directory:
-- `problems.json`: Central database of problems
-- `handles.json`: List of tracked Codeforces handles
+- `problems.json`: Central database of solved problems
+- `all_problems.json`: **NEW: Cache of all Codeforces problems**
+- `config.json`: **NEW: Configuration file including handles and settings**
 - `backups/`: Directory containing automatic backups
