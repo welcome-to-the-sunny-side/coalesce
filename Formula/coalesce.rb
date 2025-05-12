@@ -4,7 +4,7 @@ class Coalesce < Formula
   desc "Track and analyze your Codeforces problem-solving data"
   homepage "https://github.com/welcome-to-the-sunny-side/coalesce"
   url "https://github.com/welcome-to-the-sunny-side/coalesce/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "placeholder_sha256" # This will need to be updated with the actual SHA256 of the release tarball
+  sha256 "replace_with_actual_hash" # Replace with output from: curl -L https://github.com/welcome-to-the-sunny-side/coalesce/archive/refs/tags/v0.1.0.tar.gz | shasum -a 256
   license "MIT"
 
   depends_on "python@3.9"
@@ -12,6 +12,11 @@ class Coalesce < Formula
   resource "click" do
     url "https://files.pythonhosted.org/packages/59/87/84326af34517fca8c58418d148f2403df25303e02736832403587318e9e8/click-8.1.3.tar.gz"
     sha256 "7682dc8afb30297001674575ea00d1814d808d6a36af415a82bd481d37ba7b8e"
+  end
+
+  resource "urllib3" do
+    url "https://files.pythonhosted.org/packages/c5/52/fe421fb7364aa738b3506a2d99e4f3a56e079c0a798e9f4fa5e14c60922f/urllib3-1.26.15.tar.gz"
+    sha256 "8a388717b9476f934a21484e8c8e61875ab60644d29b9b39e11e4b9dc1c6b305"
   end
 
   resource "requests" do
