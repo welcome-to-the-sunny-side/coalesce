@@ -285,7 +285,7 @@ def gimme(spoil, rating, tag_and, tag_or, cid, solved):
         click.echo(f"Tags: {tags}")
 
 
-@cli.command()
+@cli.command(name="list")
 @click.option("--rating", help="Rating range (x-y, default 0‑3500)")
 @click.option("--tag_and", help="Problem must have ALL these tags")
 @click.option("--tag_or", help="Problem must have AT LEAST ONE of these tags")
