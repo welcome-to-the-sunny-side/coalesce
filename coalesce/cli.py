@@ -285,6 +285,135 @@ def gimme(spoil, rating, tag_and, tag_or, cid, solved):
         click.echo(f"Tags: {tags}")
 
 
+@cli.command(name="pset")
+@click.option("--rating", "rating_str", help="Rating range (format: x-y, default: 0-3500)")
+@click.option("--tag_and", "tag_and_str", help="Problem must have ALL these tags (comma-separated)")
+@click.option("--tag_or", "tag_or_str", help="Problem must have AT LEAST ONE of these tags (comma-separated)")
+@click.option("--cid", "cid_str", help="Contest ID range (format: x-y)")
+@click.option("--pid", "pid_str", help="Problem ID (e.g., 123A)")
+@click.option("--solved", "solved_status_str", type=click.Choice(['true', 'false'], case_sensitive=False), default=None, help="Filter by solved status. Shows all if not specified.")
+@click.option("--verbose", is_flag=True, help="Show all columns (name, rating, tags, contest_id, index, link, solved).")
+def pset(rating_str, tag_and_str, tag_or_str, cid_str, pid_str, solved_status_str, verbose):
+    """List ALL problems matching criteria, with solved status."""
+    data_manager = DataManager()
+    data_manager.lazy_refresh()
+
+    all_problems_list, _ = data_manager.get_all_problems()
+    if not all_problems_list:
+        click.secho("Problem cache is empty. Try running 'coalesce pull' first.", fg="yellow")
+        return
+
+    try:
+        solved_data = data_manager._read_json(data_manager.data_file)
+        solved_problem_ids = set(solved_data.get('problems', {}).keys())
+    except FileNotFoundError:
+        solved_problem_ids = set()
+        click.secho("Solved problems data file not found. Assuming all problems are unsolved for status display.", fg="yellow", err=True)
+    except json.JSONDecodeError:
+        solved_problem_ids = set()
+        click.secho("Error decoding solved problems data. Assuming all problems are unsolved for status display.", fg="red", err=True)
+
+    filters = {}
+    if rating_str:
+        filters['rating_range'] = parse_rating_range(rating_str)
+    if tag_and_str:
+        filters['tag_and'] = parse_tags(tag_and_str)
+    if tag_or_str:
+        filters['tag_or'] = parse_tags(tag_or_str)
+    if cid_str:
+        min_cid, max_cid = parse_cid_range(cid_str)
+        if min_cid is not None and max_cid is not None:
+             filters['cid_range'] = (min_cid, max_cid)
+    if pid_str:
+        filters['problem_id'] = pid_str.upper()
+
+    matched_problems = []
+    for problem in all_problems_list:
+        # Ensure problem has necessary attributes for filtering, with defaults
+        problem_rating = problem.get('rating', 0)
+        problem_tags = problem.get('tags', [])
+        problem_contest_id = problem.get('contest_id', 0)
+        problem_id_attr = problem.get('problem_id', '')
+
+        # Create a temporary problem object for _matches_filters if its structure differs
+        # For now, assume direct compatibility or handle within _matches_filters if necessary
+        # The `problem` objects from get_all_problems should be compatible.
+
+        if data_manager._matches_filters(problem, filters):
+            is_solved = problem_id_attr in solved_problem_ids
+            if solved_status_str is None: # Show all
+                matched_problems.append(problem)
+            elif solved_status_str == 'true' and is_solved:
+                matched_problems.append(problem)
+            elif solved_status_str == 'false' and not is_solved:
+                matched_problems.append(problem)
+
+    if not matched_problems:
+        click.secho("No problems match the specified criteria.", fg="yellow")
+        return
+
+    console = Console()
+    table = Table(
+        show_header=True, 
+        header_style="", 
+        style="green",
+        border_style="green", 
+        show_lines=True,
+        box=box.ROUNDED
+    )
+
+    # Define headers based on verbosity
+    if verbose:
+        headers = ["Name", "Link", "Solved", "Rating", "Tags", "Contest ID", "Index"]
+    else:
+        headers = ["Name", "Link", "Solved"]
+
+    # Add columns with appropriate styling, inheriting base table style
+    for header in headers:
+        if header == "Name":
+            table.add_column(header, justify="center")
+        elif header == "Link":
+            table.add_column(header, no_wrap=True)
+        elif header == "Solved": # Present in both verbose and non-verbose
+            table.add_column(header, justify="center") # All non-verbose columns get layout
+        # Verbose-only columns start here
+        elif header == "Rating": # verbose only
+            table.add_column(header, justify="center")
+        elif header == "Tags": # verbose only, matches list_cmd's Tag column style
+            table.add_column(header, overflow="ellipsis")
+        elif header == "Contest ID": # verbose only
+            table.add_column(header, justify="center")
+        elif header == "Index": # verbose only, this will be the 'plain' column, like 'Submission Time' in list_cmd
+            table.add_column(header)
+        # Ensure no other headers fall through without definition, though headers list should be exhaustive
+        # else: table.add_column(header) # Fallback, though ideally not needed
+
+    for p in matched_problems:
+        problem_name = p.get('name', p.get('problem_id', 'N/A')) 
+        # Ensure problem_name is a string, especially if it's from problem_id directly
+        if not isinstance(problem_name, str) and 'problem_id' in p:
+            problem_name = str(p['problem_id'])
+        elif not isinstance(problem_name, str):
+            problem_name = 'N/A' # Fallback if name and problem_id are missing or not strings
+
+        problem_link = p.get('problem_link', 'N/A')
+        solved_display = "True" if p.get('problem_id') in solved_problem_ids else "False"
+
+        row_data = [problem_name, problem_link, solved_display]
+        if verbose:
+            tags_display = ", ".join(p.get('tags', []))
+            row_data.extend([
+                str(p.get('rating', 'N/A')),
+                tags_display,
+                str(p.get('contest_id', 'N/A')),
+                p.get('problem_code', 'N/A') # 'problem_code' is the index like 'A'
+            ])
+        table.add_row(*[str(cell) for cell in row_data])
+
+    console.print(table)
+    click.secho(f"Displayed {len(matched_problems)} problems.", fg="green")
+
+
 @cli.command(name="list")
 @click.option("--rating", help="Rating range (x-y, default 0‑3500)")
 @click.option("--tag_and", help="Problem must have ALL these tags")

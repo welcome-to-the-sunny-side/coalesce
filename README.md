@@ -74,6 +74,18 @@ coalesce list [OPTIONS]
 #   --pid TEXT       Problem ID
 #   --verbose        Show all columns (rating, tags, submission info). Default: false.
 
+# List ALL problems from Codeforces problemset matching criteria
+coalesce pset [OPTIONS]
+
+# Options:
+#   --rating TEXT    Rating range (format: x-y, default: 0-3500)
+#   --tag_and TEXT   Problem must have ALL these tags (comma-separated)
+#   --tag_or TEXT    Problem must have AT LEAST ONE of these tags (comma-separated)
+#   --cid TEXT       Contest ID range (format: x-y)
+#   --pid TEXT       Problem ID (e.g. 123A)
+#   --solved TEXT    Filter by solved status ('true', 'false', or omit for all)
+#   --verbose        Show all columns (name, rating, tags, contest_id, index, link, solved). Default: false.
+
 # Get a random problem matching criteria
 coalesce gimme [OPTIONS]
 
